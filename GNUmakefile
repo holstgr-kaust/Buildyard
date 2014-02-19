@@ -1,5 +1,5 @@
 #!gmake
-.PHONY: debug release ninja coverage build clean clobber package tests
+.PHONY: debug release ninja coverage clean clobber tests
 
 ifeq ($(wildcard Makefile), Makefile)
 all:
@@ -16,19 +16,13 @@ else
 BUILD ?= Build
 
 normal: $(BUILD)/Makefile
-	@$(MAKE) --no-print-directory -C $(BUILD) AllBuild pngs
-
-build: $(BUILD)/Makefile
-	@$(MAKE) --no-print-directory -C $(BUILD)
+	@$(MAKE) --no-print-directory -C $(BUILD) makes pngs
 
 all: debug release
 clean:
 	@-$(MAKE) --no-print-directory -C Build clean cleans
 	@-$(MAKE) --no-print-directory -C Debug clean cleans
 	@-$(MAKE) --no-print-directory -C Release clean cleans
-
-packages: Release/Makefile
-	@$(MAKE) --no-print-directory -C Release packages
 
 tests: $(BUILD)/Makefile
 	@$(MAKE) --no-print-directory -C $(BUILD) tests
@@ -75,7 +69,7 @@ ${BUILD}/projects.make: $(BUILD)/Makefile
 
 -include ${BUILD}/projects.make
 
-.DEFAULT:
-	@$(MAKE) --no-print-directory $(BUILD)/Makefile
+.DEFAULT: $(BUILD)/Makefile
+	@$(MAKE) --no-print-directory -C $(BUILD) cmake_check_build_system
 	@$(MAKE) --no-print-directory -C $(BUILD) $(MAKECMDGOALS)
 endif
