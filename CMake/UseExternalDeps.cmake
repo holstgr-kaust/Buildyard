@@ -155,7 +155,7 @@ set(FIND_REQUIRED_FAILED)")
         if(DEPMODE STREQUAL " REQUIRED")
           file(APPEND ${_fpIn}
             "  if((NOT ${_dep}_FOUND) AND (NOT ${_DEP}_FOUND))\n"
-            "    message(FATAL_ERROR \"Could not find ${_dep}\")\n"
+            "    message(FATAL_ERROR \"Could not find ${_dep}${COMPONENTS_NOT_REQUIRED}\")\n"
             "  endif()\n")
         endif()
         file(APPEND ${_fpIn}
@@ -256,6 +256,10 @@ endif()
     "  string(REPLACE \"-std=c++11\" \"\" CUDA_HOST_FLAGS \"\${CUDA_HOST_FLAGS}\")\n"
     "  string(REPLACE \"-std=c++0x\" \"\" CUDA_HOST_FLAGS \"\${CUDA_HOST_FLAGS}\")\n"
     "endif()\n"
+    "if(OPENMP_FOUND)\n"
+    "  set(CMAKE_C_FLAGS \"\${CMAKE_C_FLAGS} \${OpenMP_C_FLAGS}\")\n"
+    "  set(CMAKE_CXX_FLAGS \"\${CMAKE_CXX_FLAGS} \${OpenMP_CXX_FLAGS}\")\n"
+    "endif()\n"
     "if(QT4_FOUND)\n"
     "  if(WIN32)\n"
     "    set(QT_USE_QTMAIN TRUE)\n"
@@ -268,6 +272,7 @@ endif()
     "    file(READ \${QT_USE_FILE} content)\n"
     "    # Change all include_directories() to use the SYSTEM option\n"
     "    string(REPLACE \"include_directories(\" \"include_directories(SYSTEM \" content \${content})\n"
+    "    string(REPLACE \"INCLUDE_DIRECTORIES(\" \"INCLUDE_DIRECTORIES(SYSTEM \" content \${content})\n"
     "    file(WRITE \${_customUseQt4File} \${content})\n"
     "    set(QT_USE_FILE \${_customUseQt4File})\n"
     "    include(\${QT_USE_FILE})\n"
