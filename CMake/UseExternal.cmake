@@ -5,6 +5,10 @@ find_package(Git REQUIRED)
 find_package(PkgConfig)
 find_package(Subversion)
 
+option(BUILDYARD_UPDATE_REBASE
+  "Try to merge fetched updates for project source folders" ON)
+option(BUILDYARD_FORCE_BUILD "Force building non-optional projects from source"
+  ON)
 if(TRAVIS)
   option(BUILDYARD_BUILD_OPTIONAL "Build optional project dependencies" OFF)
 else()
@@ -14,6 +18,7 @@ endif()
 include(CMakeParseArguments)
 include(ExternalProject)
 include(LSBInfo)
+include(Package)
 include(SCM)
 include(UseExternalAutoconf)
 include(UseExternalDeps)
@@ -23,7 +28,7 @@ include(UseExternalGitClone)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 file(REMOVE ${CMAKE_BINARY_DIR}/projects.make)
 
-set(USE_EXTERNAL_SUBTARGETS update make only configure test install download
+set(USE_EXTERNAL_SUBTARGETS update all only configure test install download
   Makefile stat clean reset resetall projects bootstrap doxygit)
 foreach(subtarget ${USE_EXTERNAL_SUBTARGETS})
   add_custom_target(${subtarget}s)
@@ -77,8 +82,9 @@ function(USE_EXTERNAL_MAKE name)
   add_custom_target(${name}-only
     COMMAND ${cmd}
     COMMENT "Building only ${name}"
+    DEPENDS ${name}-bootstrap
     WORKING_DIRECTORY ${binary_dir})
-  add_custom_target(${name}-make
+  add_custom_target(${name}-all
     COMMAND ${cmd}
     COMMENT "Dependencies built, building ${name}"
     WORKING_DIRECTORY ${binary_dir})
@@ -145,6 +151,7 @@ function(USE_EXTERNAL name)
   if(_check) # tested, be quiet and propagate upwards
     set(BUILDING ${BUILDING} PARENT_SCOPE)
     set(SKIPPING ${SKIPPING} PARENT_SCOPE)
+    set(NOTINSTALLED ${NOTINSTALLED} PARENT_SCOPE)
     set(USING ${USING} PARENT_SCOPE)
     return()
   endif()
@@ -179,6 +186,9 @@ function(USE_EXTERNAL name)
   list(APPEND CMAKE_MODULE_PATH /usr/local/share/${name}/CMake)
 
   # try find_package
+  if(BUILDYARD_FORCE_BUILD AND NOT ${NAME}_OPTIONAL AND ${NAME}_REPO_URL)
+    set(${NAME}_FORCE_BUILD ON)
+  endif()
   if(NOT ${NAME}_FORCE_BUILD)
     if(USE_EXTERNAL_COMPONENTS)
       string(REGEX REPLACE  " " ";" USE_EXTERNAL_COMPONENTS
@@ -193,7 +203,7 @@ function(USE_EXTERNAL name)
   if(${NAME}_FOUND)
     set(${name}_FOUND 1) # compat with Foo_FOUND and FOO_FOUND usage
   endif()
-  if(NOT ${name}_FOUND) # try pkg-config
+  if(NOT ${name}_FOUND AND NOT ${NAME}_FORCE_BUILD) # try pkg-config
     if(PKG_CONFIG_EXECUTABLE)
       if(${NAME}_PACKAGE_VERSION)
         pkg_check_modules(${NAME} QUIET ${name}>=${${NAME}_PACKAGE_VERSION})
@@ -221,10 +231,7 @@ function(USE_EXTERNAL name)
 
   if(NOT ${NAME}_REPO_URL)
     set_property(GLOBAL PROPERTY USE_EXTERNAL_${name} ON)
-    message(STATUS "Skip ${name}: No source repository configured")
-    file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/info.cmake
-      "Skip ${name}: No source repository configured\n")
-    set(SKIPPING ${SKIPPING} ${name} PARENT_SCOPE)
+    set(NOTINSTALLED ${NOTINSTALLED} ${name} PARENT_SCOPE)
     return()
   endif()
 
@@ -247,12 +254,10 @@ function(USE_EXTERNAL name)
           use_external(${_dep} COMPONENTS ${${NAME}_${_DEP}_COMPONENTS})
         endif()
         get_property(_found GLOBAL PROPERTY USE_EXTERNAL_${_dep}_FOUND)
-        get_target_property(_dep_check ${_dep} _EP_IS_EXTERNAL_PROJECT)
-
-        if(_dep_check EQUAL 1)
+        if(TARGET ${_dep})
           list(APPEND DEPENDS ${_dep})
           if("${DEPMODE}" STREQUAL "REQUIRED")
-            add_dependencies(${_dep}-projects ${name}-projects ${name}-make)
+            add_dependencies(${_dep}-projects ${name}-projects ${name}-all)
           endif()
         endif()
 
@@ -324,7 +329,6 @@ function(USE_EXTERNAL name)
       # do nothing for update (not default update for external projects)
       set(UPDATE_CMD "")
     endif()
-
   elseif(REPO_TYPE STREQUAL "SVN")
     if(NOT SUBVERSION_FOUND)
       message(STATUS "Skip ${name}: missing subversion")
@@ -356,21 +360,26 @@ function(USE_EXTERNAL name)
     set(MODULE_SNAPSHOT_DIR ${CMAKE_CURRENT_BINARY_DIR}/snapshot)
   endif()
 
-  list(APPEND CMAKE_PREFIX_PATH ${INSTALL_PATH})
-  set(ARGS -DBUILDYARD:BOOL=ON -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
-           -DENABLE_COVERAGE:STRING=${ENABLE_COVERAGE}
-           -DCMAKE_INSTALL_PREFIX:PATH=${INSTALL_PATH}
-           -DCMAKE_PREFIX_PATH=${INSTALL_PATH}
-           -DCMAKE_OSX_ARCHITECTURES:STRING=${CMAKE_OSX_ARCHITECTURES}
-           -DCMAKE_OSX_SYSROOT:STRING=${CMAKE_OSX_SYSROOT}
-           -DBoost_NO_BOOST_CMAKE=ON
-           -DMODULE_SW_BASEDIR:INTERNAL=${MODULE_SW_BASEDIR}   # module info
-           -DMODULE_MODULEFILES:INTERNAL=${MODULE_MODULEFILES} # comes from
-           -DMODULE_SW_CLASS:INTERNAL=${MODULE_SW_CLASS}       # Buildyard.cmake
-           -DMODULE_SNAPSHOT_DIR:INTERNAL=${MODULE_SNAPSHOT_DIR}
-            ${${NAME}_ARGS} ${${NAME}_CMAKE_ARGS})
-  if(NOT Boost_FOUND)
-    list(APPEND ARGS -DBoost_NO_SYSTEM_PATHS=ON)
+  list(APPEND CMAKE_PREFIX_PATH ${INSTALL_PATH} /opt/local)
+  list(REMOVE_DUPLICATES CMAKE_PREFIX_PATH)
+
+  set(CACHE_ARGS -DBUILDYARD:BOOL=ON
+                 -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
+                 -DENABLE_COVERAGE:STRING=${ENABLE_COVERAGE}
+                 -DENABLE_WARN_DEPRECATED:BOOL=${ENABLE_WARN_DEPRECATED}
+                 -DCMAKE_INSTALL_PREFIX:PATH=${INSTALL_PATH}
+                 -DCMAKE_PREFIX_PATH:PATH=${INSTALL_PATH}
+                 -DCMAKE_OSX_ARCHITECTURES:STRING=${CMAKE_OSX_ARCHITECTURES}
+                 -DCMAKE_OSX_SYSROOT:STRING=${CMAKE_OSX_SYSROOT}
+                 # module info comes from config.*/Buildyard.cmake
+                 -DMODULE_SW_BASEDIR:INTERNAL=${MODULE_SW_BASEDIR}
+                 -DMODULE_MODULEFILES:INTERNAL=${MODULE_MODULEFILES}
+                 -DMODULE_SW_CLASS:INTERNAL=${MODULE_SW_CLASS}
+                 -DMODULE_SNAPSHOT_DIR:INTERNAL=${MODULE_SNAPSHOT_DIR})
+
+  find_package(Boost QUIET)
+  if(NOT Boost_FOUND)   # Fix find of non-system Boost
+    list(APPEND CACHE_ARGS -DBoost_NO_SYSTEM_PATHS:BOOL=ON)
   endif()
 
   ExternalProject_Add(${name}
@@ -383,7 +392,8 @@ function(USE_EXTERNAL name)
     ${REPOSITORY} ${${NAME}_REPO_URL}
     ${REPO_TAG} ${${NAME}_REPO_TAG}
     UPDATE_COMMAND ${UPDATE_CMD}
-    CMAKE_ARGS ${ARGS}
+    CMAKE_ARGS ${${NAME}_CMAKE_ARGS}
+    CMAKE_CACHE_ARGS ${CACHE_ARGS}
     TEST_AFTER_INSTALL 1
     ${${NAME}_EXTRA}
     STEP_TARGETS ${USE_EXTERNAL_SUBTARGETS}
@@ -478,14 +488,13 @@ function(USE_EXTERNAL name)
     COMMAND ${CMAKE_COMMAND} -P ${BOOTSTRAPFILE})
   set_target_properties(${name}-bootstrap PROPERTIES FOLDER ${name}
     EXCLUDE_FROM_ALL ON EXCLUDE_FROM_DEFAULT_BUILD ON )
-  add_dependencies(${name}-make ${name}-bootstrap)
-  set_target_properties(${name}-make PROPERTIES FOLDER ${name})
+  add_dependencies(${name}-all ${name}-bootstrap)
+  set_target_properties(${name}-all PROPERTIES FOLDER ${name})
 
   foreach(_dep ${${NAME}_DEPENDS})
-    get_target_property(_dep_check ${_dep} _EP_IS_EXTERNAL_PROJECT)
-    if(_dep_check EQUAL 1)
+    if(TARGET ${_dep})
       add_dependencies(${name}-resetall ${_dep}-resetall)
-      add_dependencies(${name}-make ${_dep}-make)
+      add_dependencies(${name}-all ${_dep}-all)
       if(${CMAKE_BUILD_TYPE} STREQUAL "Release")
         add_dependencies(${name}-snapshot_install ${_dep}-snapshot_install)
       endif()
@@ -521,9 +530,12 @@ function(USE_EXTERNAL name)
     set_target_properties(${name}-${subtarget} PROPERTIES FOLDER ${name})
   endforeach()
 
+  package(${name})
+
   set_property(GLOBAL PROPERTY USE_EXTERNAL_${name} ON)
   set_property(GLOBAL PROPERTY USE_EXTERNAL_${name}_FOUND ON)
   set(BUILDING ${BUILDING} ${name} PARENT_SCOPE)
   set(SKIPPING ${SKIPPING} PARENT_SCOPE)
+  set(NOTINSTALLED ${NOTINSTALLED} PARENT_SCOPE)
   set(USING ${USING} PARENT_SCOPE)
 endfunction()
