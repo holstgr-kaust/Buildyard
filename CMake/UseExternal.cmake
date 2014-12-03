@@ -16,6 +16,7 @@ else()
 endif()
 
 include(CMakeParseArguments)
+include(CommonPackage)
 include(ExternalProject)
 include(LSBInfo)
 include(Package)
@@ -139,7 +140,7 @@ endfunction()
 
 function(USE_EXTERNAL name)
   # Searches for an external project.
-  # * First searches using find_package taking into account:
+  # * First searches using common_package taking into account:
   # ** NAME_ROOT CMake and environment variables
   # ** .../share/name/CMake
   # ** Version is read from optional $name.cmake
@@ -185,7 +186,6 @@ function(USE_EXTERNAL name)
   list(APPEND CMAKE_MODULE_PATH /usr/share/${name}/CMake)
   list(APPEND CMAKE_MODULE_PATH /usr/local/share/${name}/CMake)
 
-  # try find_package
   if(BUILDYARD_FORCE_BUILD AND NOT ${NAME}_OPTIONAL AND ${NAME}_REPO_URL)
     set(${NAME}_FORCE_BUILD ON)
   endif()
@@ -193,27 +193,15 @@ function(USE_EXTERNAL name)
     if(USE_EXTERNAL_COMPONENTS)
       string(REGEX REPLACE  " " ";" USE_EXTERNAL_COMPONENTS
         ${USE_EXTERNAL_COMPONENTS})
-      find_package(${name} ${${NAME}_PACKAGE_VERSION} QUIET ${${NAME}_FIND_ARGS}
-        COMPONENTS ${USE_EXTERNAL_COMPONENTS})
+      common_package(${name} ${${NAME}_PACKAGE_VERSION} QUIET
+        ${${NAME}_FIND_ARGS} COMPONENTS ${USE_EXTERNAL_COMPONENTS})
     else()
-      find_package(${name} ${${NAME}_PACKAGE_VERSION} QUIET
+      common_package(${name} ${${NAME}_PACKAGE_VERSION} QUIET
         ${${NAME}_FIND_ARGS})
     endif()
   endif()
   if(${NAME}_FOUND)
     set(${name}_FOUND 1) # compat with Foo_FOUND and FOO_FOUND usage
-  endif()
-  if(NOT ${name}_FOUND AND NOT ${NAME}_FORCE_BUILD) # try pkg-config
-    if(PKG_CONFIG_EXECUTABLE)
-      if(${NAME}_PACKAGE_VERSION)
-        pkg_check_modules(${NAME} QUIET ${name}>=${${NAME}_PACKAGE_VERSION})
-      else()
-        pkg_check_modules(${NAME} QUIET ${name})
-      endif()
-      if(${NAME}_FOUND)
-        set(${name}_FOUND 1) # compat with Foo_FOUND and FOO_FOUND usage
-      endif()
-    endif()
   endif()
   if(${name}_FOUND)
     set_property(GLOBAL PROPERTY USE_EXTERNAL_${name}_FOUND ON)
@@ -339,6 +327,11 @@ function(USE_EXTERNAL name)
       return()
     endif()
     set(REPO_TAG SVN_REVISION)
+    set(REPO_USERNAME SVN_USERNAME ${${NAME}_REPO_USERNAME})
+    # The if statement distinguishes between empty and unset passwords.
+    if (DEFINED ${NAME}_REPO_PASSWORD)
+      set(REPO_PASSWORD SVN_PASSWORD "${${NAME}_REPO_PASSWORD}")
+    endif()
   elseif(REPO_TYPE STREQUAL "FILE")
     set(REPOSITORY URL)
   else()
@@ -374,7 +367,8 @@ function(USE_EXTERNAL name)
                  -DMODULE_SW_BASEDIR:INTERNAL=${MODULE_SW_BASEDIR}
                  -DMODULE_MODULEFILES:INTERNAL=${MODULE_MODULEFILES}
                  -DMODULE_SW_CLASS:INTERNAL=${MODULE_SW_CLASS}
-                 -DMODULE_SNAPSHOT_DIR:INTERNAL=${MODULE_SNAPSHOT_DIR})
+                 -DMODULE_SNAPSHOT_DIR:INTERNAL=${MODULE_SNAPSHOT_DIR}
+                 -DCOMMON_LIBRARY_TYPE:STRING=${COMMON_LIBRARY_TYPE})
 
   if(NOT ${NAME}_CMAKE_ARGS MATCHES "CMAKE_BUILD_TYPE")
     list(APPEND CACHE_ARGS -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE})
@@ -394,6 +388,8 @@ function(USE_EXTERNAL name)
     DEPENDS "${DEPENDS}"
     ${REPOSITORY} ${${NAME}_REPO_URL}
     ${REPO_TAG} ${${NAME}_REPO_TAG}
+    ${REPO_USERNAME}
+    "${REPO_PASSWORD}" # This allows empty passwords
     UPDATE_COMMAND ${UPDATE_CMD}
     CMAKE_ARGS ${${NAME}_CMAKE_ARGS}
     CMAKE_CACHE_ARGS ${CACHE_ARGS}

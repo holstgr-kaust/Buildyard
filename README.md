@@ -45,6 +45,12 @@ Custom CMake binary directories are supported and can be used through
 the top-level make using 'make BUILD=[directory]' or 'export
 BUILD=[directory]; make'.
 
+### Generic external dependencies
+
+Major open source packages, such as Qt or Boost, are assumed to be
+installed as packages on the system. If this is not the case, and they
+should be build from source, enable config.extra in config/depends.txt.
+
 ## Options
 
 * BUILDYARD_UPDATE_REBASE: Try to rebase fetched updates into the project
@@ -132,6 +138,10 @@ It contains the following variables:
 * PROJECT\_REPO\_TYPE: optional, git, git-svn or svn. Default is git.
 * PROJECT\_REPO\_URL: git or svn repository URL.
 * PROJECT\_REPO\_TAG: The svn revision or git tag to use to build the project.
+* PROJECT\_REPO\_USERNAME: The username to access the repository. Currently
+  only for svn repositories.
+* PROJECT\_REPO\_PASSWORD: The password to access the repository. Currently
+  only for svn repositories.
 * PROJECT\_REPO\_DEPTH: Depth of the git clone for shallow clones.
 * PROJECT\_REPO\_UPDATE\_POLICY: The git update type. One of: "NONE" (Buildyard default: no command executed, no changes), "REMOTE_UPDATE" (git remote update), "FETCH_MERGE" (git pull), "CMAKE_DEFAULT" (default CMake behaviour). 
 * PROJECT\_ROOT\_VAR: optional CMake variable name for the project root,
@@ -142,6 +152,8 @@ It contains the following variables:
   step. The character '!' can be used to separate list items.
 * PROJECT\_AUTOCONF: when set to true, the autoconf build system is used to
   build the project.
+* PROJECT\_DEB\_NAME: Name of the debian package for this project. Used for
+  apt-get target.
 * PROJECT\_DEB\_DEPENDS: Debian package names of dependencies. Used for
   apt-get target and Travis CI configuration files.
 * PROJECT\_PORT\_DEPENDS: MacPorts package names of dependencies. Used
